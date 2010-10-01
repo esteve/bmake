@@ -1,0 +1,21 @@
+Source: bmake
+Section: devel
+Priority: optional
+Maintainer: Aleksey Cheusov <vle@gmx.net>
+Build-Depends: debhelper (>= 5), autotools-dev
+Standards-Version: 3.8.0
+
+Package: bmake
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: pkgsrc-mk-files
+Description: NetBSD make
+ bmake, the NetBSD make(1) tool, is a program designed to simplify the
+ maintenance of other programs.  The input of bmake is a list of
+ specifications indicating the files upon which the targets (programs and
+ other files) depend.  bmake then detects which targets are out of date
+ based on their dependencies and triggers the necessary commands to bring
+ them up to date when that happens.
+ .
+ bmake is similar to GNU make, even though the syntax for the advanced
+ features supported in Makefiles is very different.

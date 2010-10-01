@@ -1,0 +1,37 @@
+bmake (20100911-2) unstable; urgency=low
+
+  * Fix in debian/rules
+
+ -- Aleksey Cheusov <vle@gmx.net>  Fri, 01 Oct 2010 13:51:10 +0300
+
+bmake (20100911-1) unstable; urgency=low
+
+  * New upstream release
+
+ -- Aleksey Cheusov <vle@gmx.net>  Fri, 01 Oct 2010 12:36:18 +0300
+
+bmake (20091118-3) unstable; urgency=low
+
+  * Minor fix in debian/rules
+
+ -- Aleksey Cheusov <vle@gmx.net>  Sun, 25 Apr 2010 14:42:01 +0300
+
+bmake (20091118-2) unstable; urgency=low
+
+  * Minor fixes
+
+ -- Aleksey Cheusov <vle@gmx.net>  Sat, 16 Jan 2010 18:35:13 +0200
+
+bmake (20091118-1) unstable; urgency=low
+
+  * Update to upstream version 20091118
+
+ -- Aleksey Cheusov <vle@gmx.net>  Fri, 20 Nov 2009 16:24:51 +0200
+
+bmake (20081111-1) unstable; urgency=low
+
+  * This is just the first Debian package
+
+ -- Aleksey Cheusov <vle@gmx.net>  Thu, 27 Aug 2009 13:31:30 +0300
+
+
