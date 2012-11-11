@@ -1,10 +1,10 @@
 dnl
 dnl RCSid:
-dnl	$Id: configure.in,v 1.37 2010/09/13 20:29:04 sjg Exp $
+dnl	$Id: configure.in,v 1.45 2012/06/20 22:43:41 sjg Exp $
 dnl
 dnl Process this file with autoconf to produce a configure script
 dnl
-AC_INIT([bmake], [20100911], [sjg@NetBSD.org])
+AC_INIT([bmake], [20120620], [sjg@NetBSD.org])
 AC_CONFIG_HEADER(config.h)
 
 dnl
@@ -39,7 +39,7 @@ AC_ARG_WITH(filemon,
 esac],
 [
 OS=`uname -s`
-for d in "$srcdir/filemon" "$srcdir/../filemon"
+for d in "/usr/include/dev/filemon" "$prefix/include/dev/filemon" "$srcdir/filemon" "$srcdir/../filemon" "$srcdir/../../sys/dev/filemon"
 do
 	for x in "/$OS" ""
 	do
@@ -73,6 +73,15 @@ dnl Executable suffix - normally empty; .exe on os2.
 AC_SUBST(ac_exe_suffix)dnl
 
 dnl
+dnl Check if /bin/sh will pass .MAKE.LEVEL
+echo $ECHO_N "checking if sh will pass .MAKE. variables... $ECHO_C" >&6
+ok=`env .MAKE.LEVEL=1 /bin/sh -c env | grep LEVEL=`
+case "$ok" in
+"") echo no >&6; CPPFLAGS="${CPPFLAGS} -DNEED_MAKE_LEVEL_SAFE";;
+*) echo yes >&6;;
+esac
+
+dnl
 dnl AC_C_CROSS
 dnl
 
@@ -89,6 +98,7 @@ AC_CHECK_HEADERS( \
 	poll.h \
 	ranlib.h \
 	string.h \
+	sys/mman.h \
 	sys/select.h \
 	sys/socket.h \
 	sys/time.h \
@@ -138,9 +148,12 @@ AC_CHECK_FUNCS( \
 	getopt \
 	getwd \
 	killpg \
+	mmap \
 	putenv \
 	select \
 	setenv \
+	setpgid \
+	setsid \
 	sigaction \
 	sigvec \
 	snprintf \
@@ -160,7 +173,6 @@ AC_CHECK_FUNCS( \
 
 dnl functions which we may need to provide
 AC_REPLACE_FUNCS( \
-	getenv \
 	realpath \
 	dirname \
 	stresep \
@@ -351,7 +363,7 @@ cat <<EOF
 
 You can now run
 
-	./make-bootstrap.sh
+	sh ./make-bootstrap.sh
 
 to produce a fully functional bmake.
 

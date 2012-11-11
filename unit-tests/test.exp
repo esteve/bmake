@@ -80,7 +80,33 @@ make: Graph cycles through `cycle.2.98'
 make: Graph cycles through `cycle.2.97'
 cycle.1.99
 cycle.1.99
+x=one
+x="two and three"
+x=four
+x="five"
+x=-I/this
+x=-I"This or that"
+x=-Ithat
+x="-DTHIS=\"this and that\""
+cfl=-I/this -I"This or that" -Ithat "-DTHIS=\"this and that\""
+a=one b="two and three"
+a=four b="five"
+a=ONE b="TWO AND THREE"
+a=FOUR b="FIVE"
+We expect an error next:
+make: "forloop" line 38: Wrong number of words (9) in .for substitution list with 2 vars
+make: Fatal errors encountered -- cannot continue
+make: stopped in unit-tests
+OK
 .for with :S;... OK
+b2af338b
+3360ac65
+7747f046
+9ca87054
+880fe816
+208fcbd3
+d5d376eb
+de41416c
 Expect: Unknown modifier 'Z'
 make: Unknown modifier 'Z'
 VAR:Z=
@@ -120,6 +146,7 @@ path='/bin':'/tmp':'/':'/no/such/dir'
 path_/usr/xbin=/opt/xbin/
 paths=/bin /tmp / /no/such/dir /opt/xbin
 PATHS=/BIN /TMP / /NO/SUCH/DIR /OPT/XBIN
+The answer is 42
 LIST      = one two three four five six seven eight nine ten
 LIST:O    = eight five four nine one seven six ten three two
 LIST:Ox   = Ok
@@ -283,6 +310,14 @@ LIST:tw:C/ /,/g="one two three four five six"
 LIST:tw:C/ /,/1g="one two three four five six"
 LIST:tw:tW:C/ /,/="one,two three four five six"
 LIST:tW:tw:C/ /,/="one two three four five six"
+Making the.c
+Making the.h
+Making the.o from the.h the.c
+.TARGET="phony" .PREFIX="phony" .IMPSRC=""
+.TARGET="all" .PREFIX="all" .IMPSRC=""
+.TARGET="ok" .PREFIX="ok" .IMPSRC=""
+.TARGET="also.ok" .PREFIX="also.ok" .IMPSRC=""
+.TARGET="bug" .PREFIX="bug" .IMPSRC=""
 Posix says we should execute the command as if run by system(3)
 Expect 'Hello,' and 'World!'
 Hello,
@@ -306,6 +341,12 @@ Now we expect an error...
 *** Error code 1 (continuing)
 `all' not remade because of errors.
 V.i386 ?= OK
+FOOBAR =
+FOOBAR = foobar fubar
+fun
+fun
+fun
+In the Sun
 The answer is unknown
 The answer is unknown
 The answer is empty

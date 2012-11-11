@@ -1,4 +1,4 @@
-/*	$NetBSD: main.c,v 1.190 2010/09/13 15:36:57 sjg Exp $	*/
+/*	$NetBSD: main.c,v 1.203 2012/08/31 07:00:36 sjg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1993
@@ -69,7 +69,7 @@
  */
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: main.c,v 1.190 2010/09/13 15:36:57 sjg Exp $";
+static char rcsid[] = "$NetBSD: main.c,v 1.203 2012/08/31 07:00:36 sjg Exp $";
 #else
 #include <sys/cdefs.h>
 #ifndef lint
@@ -81,7 +81,7 @@ __COPYRIGHT("@(#) Copyright (c) 1988, 1989, 1990, 1993\
 #if 0
 static char sccsid[] = "@(#)main.c	8.3 (Berkeley) 3/19/94";
 #else
-__RCSID("$NetBSD: main.c,v 1.190 2010/09/13 15:36:57 sjg Exp $");
+__RCSID("$NetBSD: main.c,v 1.203 2012/08/31 07:00:36 sjg Exp $");
 #endif
 #endif /* not lint */
 #endif
@@ -159,6 +159,7 @@ int			maxJobs;	/* -j argument */
 static int		maxJobTokens;	/* -j argument */
 Boolean			compatMake;	/* -B argument */
 int			debug;		/* -d argument */
+Boolean			debugVflag;	/* -dV */
 Boolean			noExecute;	/* -n flag */
 Boolean			noRecursiveExecute;	/* -N flag */
 Boolean			keepgoing;	/* -k flag */
@@ -180,11 +181,11 @@ static char *		Check_Cwd_av(int, char **, int);
 #endif
 static void		MainParseArgs(int, char **);
 static int		ReadMakefile(const void *, const void *);
-static void		usage(void);
+static void		usage(void) MAKE_ATTR_DEAD;
 
 static Boolean		ignorePWD;	/* if we use -C, PWD is meaningless */
-static char curdir[MAXPATHLEN + 1];	/* startup directory */
 static char objdir[MAXPATHLEN + 1];	/* where we chdir'ed to */
+char curdir[MAXPATHLEN + 1];		/* Startup directory */
 char *progname;				/* the program name */
 char *makeDependfile;
 pid_t myPid;
@@ -271,6 +272,9 @@ parse_debug_options(const char *argvalue)
 		case 't':
 			debug |= DEBUG_TARG;
 			break;
+		case 'V':
+			debugVflag = TRUE;
+			break;
 		case 'v':
 			debug |= DEBUG_VAR;
 			break;
@@ -280,9 +284,10 @@ parse_debug_options(const char *argvalue)
 		case 'F':
 			if (debug_file != stdout && debug_file != stderr)
 				fclose(debug_file);
-			if (*++modules == '+')
+			if (*++modules == '+') {
+				modules++;
 				mode = "a";
-			else
+			} else
 				mode = "w";
 			if (strcmp(modules, "stdout") == 0) {
 				debug_file = stdout;
@@ -716,7 +721,7 @@ ReadAllMakefiles(const void *p, const void *q)
 	return (ReadMakefile(p, q) == 0);
 }
 
-static int
+int
 str2Lst_Append(Lst lp, char *str, const char *sep)
 {
     char *cp;
@@ -735,7 +740,7 @@ str2Lst_Append(Lst lp, char *str, const char *sep)
 #ifdef SIGINFO
 /*ARGSUSED*/
 static void
-siginfo(int signo)
+siginfo(int signo MAKE_ATTR_UNUSED)
 {
 	char dir[MAXPATHLEN];
 	char str[2 * MAXPATHLEN];
@@ -799,9 +804,9 @@ main(int argc, char **argv)
 	char *p1, *path, *pwd;
 	char mdpath[MAXPATHLEN];
 #ifdef FORCE_MACHINE
-	char *machine = FORCE_MACHINE;
+	const char *machine = FORCE_MACHINE;
 #else
-    	char *machine = getenv("MACHINE");
+    	const char *machine = getenv("MACHINE");
 #endif
 	const char *machine_arch = getenv("MACHINE_ARCH");
 	char *syspath = getenv("MAKESYSPATH");
@@ -909,6 +914,7 @@ main(int argc, char **argv)
 	create = Lst_Init(FALSE);
 	makefiles = Lst_Init(FALSE);
 	printVars = FALSE;
+	debugVflag = FALSE;
 	variables = Lst_Init(FALSE);
 	beSilent = FALSE;		/* Print commands as executed */
 	ignoreErrors = FALSE;		/* Pay attention to non-zero returns */
@@ -971,7 +977,10 @@ main(int argc, char **argv)
 	    const char *ep;
 
 	    if (!(ep = getenv(MAKE_LEVEL))) {
-		ep = "0";
+#ifdef MAKE_LEVEL_SAFE
+		if (!(ep = getenv(MAKE_LEVEL_SAFE)))
+#endif
+		    ep = "0";
 	    }
 	    Var_Set(MAKE_LEVEL, ep, VAR_GLOBAL, 0);
 	    snprintf(tmp, sizeof(tmp), "%u", myPid);
@@ -997,7 +1006,8 @@ main(int argc, char **argv)
 	 * We take care of PWD for the automounter below...
 	 */
 	if (getcwd(curdir, MAXPATHLEN) == NULL) {
-		(void)fprintf(stderr, "%s: %s.\n", progname, strerror(errno));
+		(void)fprintf(stderr, "%s: getcwd: %s.\n",
+		    progname, strerror(errno));
 		exit(2);
 	}
 
@@ -1248,7 +1258,12 @@ main(int argc, char **argv)
 	/* print the values of any variables requested by the user */
 	if (printVars) {
 		LstNode ln;
+		Boolean expandVars;
 
+		if (debugVflag)
+			expandVars = FALSE;
+		else
+			expandVars = getBoolean(".MAKE.EXPAND_VARIABLES", FALSE);
 		for (ln = Lst_First(variables); ln != NULL;
 		    ln = Lst_Succ(ln)) {
 			char *var = (char *)Lst_Datum(ln);
@@ -1256,6 +1271,13 @@ main(int argc, char **argv)
 			
 			if (strchr(var, '$')) {
 				value = p1 = Var_Subst(NULL, var, VAR_GLOBAL, 0);
+			} else if (expandVars) {
+				char tmp[128];
+								
+				if (snprintf(tmp, sizeof(tmp), "${%s}", var) >= (int)(sizeof(tmp)))
+					Fatal("%s: variable name too big: %s",
+					      progname, var);
+				value = p1 = Var_Subst(NULL, tmp, VAR_GLOBAL, 0);
 			} else {
 				value = Var_Value(var, VAR_GLOBAL, &p1);
 			}
@@ -1335,7 +1357,7 @@ main(int argc, char **argv)
  *	lots
  */
 static int
-ReadMakefile(const void *p, const void *q __unused)
+ReadMakefile(const void *p, const void *q MAKE_ATTR_UNUSED)
 {
 	const char *fname = p;		/* makefile to read */
 	int fd;
@@ -1343,7 +1365,7 @@ ReadMakefile(const void *p, const void *q __unused)
 	char *name, *path = bmake_malloc(len);
 
 	if (!strcmp(fname, "-")) {
-		Parse_File("(stdin)", dup(fileno(stdin)));
+		Parse_File(NULL /*stdin*/, -1);
 		Var_Set("MAKEFILE", "", VAR_GLOBAL, 0);
 	} else {
 		/* if we've chdir'd, rebuild the path name */
@@ -2020,20 +2042,10 @@ Main_ExportMAKEFLAGS(Boolean first)
     }
 }
 
-/*
- * Create and open a temp file using "pattern".
- * If "fnamep" is provided set it to a copy of the filename created.
- * Otherwise unlink the file once open.
- */
-int
-mkTempFile(const char *pattern, char **fnamep)
+char *
+getTmpdir(void)
 {
     static char *tmpdir = NULL;
-    char tfile[MAXPATHLEN];
-    int fd;
-    
-    if (!pattern)
-	pattern = TMPPAT;
 
     if (!tmpdir) {
 	struct stat st;
@@ -2048,6 +2060,25 @@ mkTempFile(const char *pattern, char **fnamep)
 	    tmpdir = bmake_strdup(_PATH_TMP);
 	}
     }
+    return tmpdir;
+}
+
+/*
+ * Create and open a temp file using "pattern".
+ * If "fnamep" is provided set it to a copy of the filename created.
+ * Otherwise unlink the file once open.
+ */
+int
+mkTempFile(const char *pattern, char **fnamep)
+{
+    static char *tmpdir = NULL;
+    char tfile[MAXPATHLEN];
+    int fd;
+    
+    if (!pattern)
+	pattern = TMPPAT;
+    if (!tmpdir)
+	tmpdir = getTmpdir();
     if (pattern[0] == '/') {
 	snprintf(tfile, sizeof(tfile), "%s", pattern);
     } else {
@@ -2061,4 +2092,50 @@ mkTempFile(const char *pattern, char **fnamep)
 	unlink(tfile);			/* we just want the descriptor */
     }
     return fd;
+}
+
+
+/*
+ * Return a Boolean based on setting of a knob.
+ *
+ * If the knob is not set, the supplied default is the return value.
+ * If set, anything that looks or smells like "No", "False", "Off", "0" etc,
+ * is FALSE, otherwise TRUE.
+ */
+Boolean
+getBoolean(const char *name, Boolean bf)
+{
+    char tmp[64];
+    char *cp;
+
+    if (snprintf(tmp, sizeof(tmp), "${%s:tl}", name) < (int)(sizeof(tmp))) {
+	cp = Var_Subst(NULL, tmp, VAR_GLOBAL, 0);
+
+	if (cp) {
+	    switch(*cp) {
+	    case '\0':			/* not set - the default wins */
+		break;
+	    case '0':
+	    case 'f':
+	    case 'n':
+		bf = FALSE;
+		break;
+	    case 'o':
+		switch (cp[1]) {
+		case 'f':
+		    bf = FALSE;
+		    break;
+		default:
+		    bf = TRUE;
+		    break;
+		}
+		break;
+	    default:
+		bf = TRUE;
+		break;
+	    }
+	    free(cp);
+	}
+    }
+    return (bf);
 }

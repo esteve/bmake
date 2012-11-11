@@ -1,4 +1,4 @@
-/*	$NetBSD: job.c,v 1.155 2010/09/13 15:36:57 sjg Exp $	*/
+/*	$NetBSD: job.c,v 1.163 2012/07/03 21:03:40 sjg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990 The Regents of the University of California.
@@ -70,14 +70,14 @@
  */
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: job.c,v 1.155 2010/09/13 15:36:57 sjg Exp $";
+static char rcsid[] = "$NetBSD: job.c,v 1.163 2012/07/03 21:03:40 sjg Exp $";
 #else
 #include <sys/cdefs.h>
 #ifndef lint
 #if 0
 static char sccsid[] = "@(#)job.c	8.2 (Berkeley) 3/19/94";
 #else
-__RCSID("$NetBSD: job.c,v 1.155 2010/09/13 15:36:57 sjg Exp $");
+__RCSID("$NetBSD: job.c,v 1.163 2012/07/03 21:03:40 sjg Exp $");
 #endif
 #endif /* not lint */
 #endif
@@ -334,10 +334,7 @@ static int readyfd(Job *);
 
 STATIC GNode   	*lastNode;	/* The node for which output was most recently
 				 * produced. */
-STATIC const char *targFmt;   	/* Format string to use to head output from a
-				 * job when it's not the most-recent job heard
-				 * from */
-static char *targPrefix = NULL; /* What we print at the start of targFmt */
+static char *targPrefix = NULL; /* What we print at the start of TARG_FMT */
 static Job tokenWaitJob;	/* token wait pseudo-job */
 
 static Job childExitJob;	/* child exit pseudo-job */
@@ -346,7 +343,8 @@ static Job childExitJob;	/* child exit pseudo-job */
 
 #define TARG_FMT  "%s %s ---\n" /* Default format */
 #define MESSAGE(fp, gn) \
-	(void)fprintf(fp, targFmt, targPrefix, gn->name)
+	if (maxJobs != 1) \
+	    (void)fprintf(fp, TARG_FMT, targPrefix, gn->name)
 
 static sigset_t caught_signals;	/* Set of signals we handle */
 #if defined(SYSV)
@@ -367,7 +365,7 @@ static int JobStart(GNode *, int);
 static char *JobOutput(Job *, char *, char *, int);
 static void JobDoOutput(Job *, Boolean);
 static Shell *JobMatchShell(const char *);
-static void JobInterrupt(int, int);
+static void JobInterrupt(int, int) MAKE_ATTR_DEAD;
 static void JobRestartJobs(void);
 static void JobTokenAdd(void);
 static void JobSigLock(sigset_t *);
@@ -490,7 +488,7 @@ JobCondPassSig(int signo)
  *-----------------------------------------------------------------------
  */
 static void
-JobChildSig(int signo __unused)
+JobChildSig(int signo MAKE_ATTR_UNUSED)
 {
     write(childExitJob.outPipe, CHILD_EXIT, 1);
 }
@@ -513,7 +511,7 @@ JobChildSig(int signo __unused)
  *-----------------------------------------------------------------------
  */
 static void
-JobContinueSig(int signo __unused)
+JobContinueSig(int signo MAKE_ATTR_UNUSED)
 {
     /*
      * Defer sending to SIGCONT to our stopped children until we return
@@ -538,14 +536,14 @@ JobContinueSig(int signo __unused)
  *
  *-----------------------------------------------------------------------
  */
-static void
+MAKE_ATTR_DEAD static void
 JobPassSig_int(int signo)
 {
     /* Run .INTERRUPT target then exit */
     JobInterrupt(TRUE, signo);
 }
 
-static void
+MAKE_ATTR_DEAD static void
 JobPassSig_term(int signo)
 {
     /* Dont run .INTERRUPT target then exit */
@@ -973,12 +971,6 @@ JobFinish (Job *job, WAIT_T status)
 {
     Boolean 	 done, return_job_token;
 
-#ifdef USE_META
-    if (useMeta) {
-	meta_job_finish(job);
-    }
-#endif
-    
     if (DEBUG(JOB)) {
 	fprintf(debug_file, "Jobfinish: %d [%s], status %d\n",
 				job->pid, job->node->name, status);
@@ -1069,6 +1061,12 @@ JobFinish (Job *job, WAIT_T status)
 	(void)fflush(stdout);
     }
 
+#ifdef USE_META
+    if (useMeta) {
+	meta_job_finish(job);
+    }
+#endif
+    
     return_job_token = FALSE;
 
     Trace_Log(JOBEND, job);
@@ -1149,7 +1147,8 @@ Job_Touch(GNode *gn, Boolean silent)
     int		  streamID;   	/* ID of stream opened to do the touch */
     struct utimbuf times;	/* Times for utime() call */
 
-    if (gn->type & (OP_JOIN|OP_USE|OP_USEBEFORE|OP_EXEC|OP_OPTIONAL|OP_PHONY)) {
+    if (gn->type & (OP_JOIN|OP_USE|OP_USEBEFORE|OP_EXEC|OP_OPTIONAL|
+	OP_SPECIAL|OP_PHONY)) {
 	/*
 	 * .JOIN, .USE, .ZEROTIME and .OPTIONAL targets are "virtual" targets
 	 * and, as such, shouldn't really be created.
@@ -1241,7 +1240,7 @@ Job_CheckCommands(GNode *gn, void (*abortProc)(const char *, ...))
 	    Var_Set(IMPSRC, Var_Value(TARGET, gn, &p1), gn, 0);
 	    if (p1)
 		free(p1);
-	} else if (Dir_MTime(gn) == 0 && (gn->type & OP_SPECIAL) == 0) {
+	} else if (Dir_MTime(gn, 0) == 0 && (gn->type & OP_SPECIAL) == 0) {
 	    /*
 	     * The node wasn't the target of an operator we have no .DEFAULT
 	     * rule to go on and the target doesn't already exist. There's
@@ -1396,11 +1395,15 @@ JobExec(Job *job, char **argv)
 	 * we can kill it and all its descendants in one fell swoop,
 	 * by killing its process family, but not commit suicide.
 	 */
-#if defined(SYSV)
+#if defined(HAVE_SETPGID)
+	(void)setpgid(0, getpid());
+#else
+#if defined(HAVE_SETSID)
 	/* XXX: dsl - I'm sure this should be setpgrp()... */
 	(void)setsid();
 #else
-	(void)setpgid(0, getpid());
+	(void)setpgrp(0, getpid());
+#endif
 #endif
 
 	Var_ExportVars();
@@ -1607,6 +1610,9 @@ JobStart(GNode *gn, int flags)
 #ifdef USE_META
 	if (useMeta) {
 	    meta_job_start(job, gn);
+	    if (Targ_Silent(gn)) {	/* might have changed */
+		job->flags |= JOB_SILENT;
+	    }
 	}
 #endif
 	/*
@@ -2191,16 +2197,6 @@ Job_Init(void)
 
     lastNode =	  NULL;
 
-    if (maxJobs == 1) {
-	/*
-	 * If only one job can run at a time, there's no need for a banner,
-	 * is there?
-	 */
-	targFmt = "";
-    } else {
-	targFmt = TARG_FMT;
-    }
-
     /*
      * There is a non-zero chance that we already have children.
      * eg after 'make -f- <<EOF'
@@ -2445,7 +2441,7 @@ Job_ParseShell(char *line)
 	 * If no path was given, the user wants one of the pre-defined shells,
 	 * yes? So we find the one s/he wants with the help of JobMatchShell
 	 * and set things up the right way. shellPath will be set up by
-	 * Job_Init.
+	 * Shell_Init.
 	 */
 	if (newShell.name == NULL) {
 	    Parse_Error(PARSE_FATAL, "Neither path nor name specified");
@@ -2460,6 +2456,12 @@ Job_ParseShell(char *line)
 	    }
 	    commandShell = sh;
 	    shellName = newShell.name;
+	    if (shellPath) {
+		/* Shell_Init has already been called!  Do it again. */
+		free(UNCONST(shellPath));
+		shellPath = NULL;
+		Shell_Init();
+	    }
 	}
     } else {
 	/*

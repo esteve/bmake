@@ -2,6 +2,7 @@ FILES
 ChangeLog
 bmake.cat1
 boot-strap
+bsd.after-import.mk
 os.sh
 Makefile.in
 PSD.doc/Makefile
@@ -23,7 +24,6 @@ dir.c
 dir.h
 find_lib.sh
 for.c
-getenv.c
 getopt.c
 hash.c
 hash.h
@@ -100,15 +100,21 @@ unit-tests/dotwait
 unit-tests/error
 unit-tests/export
 unit-tests/export-all
+unit-tests/forloop
 unit-tests/forsubst
+unit-tests/hash
+unit-tests/misc
 unit-tests/moderrs
 unit-tests/modmatch
 unit-tests/modmisc
 unit-tests/modorder
 unit-tests/modts
 unit-tests/modword
+unit-tests/order
+unit-tests/phony-end
 unit-tests/posix
 unit-tests/qequals
+unit-tests/sysv
 unit-tests/ternary
 unit-tests/test.exp
 unit-tests/unexport

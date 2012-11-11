@@ -41,14 +41,14 @@ do_compile() {
 		do_compile2 "$obj" "$d/$src" "$@" || exit 1
 		return
 	done
-	echo "Unknown object file '$1'" >&2
+	echo "Unknown object file '$obj'" >&2
 	exit 1
 }
 
 do_link() {
 	output="$1"; shift
-	echo ${CC} ${LDFLAGS} -o "$output" "$@" ${LIBS}
-	${CC} ${LDFLAGS} -o "$output" "$@" ${LIBS}
+	echo ${CC} ${LDSTATIC} ${LDFLAGS} -o "$output" "$@" ${LIBS}
+	${CC} ${LDSTATIC} ${LDFLAGS} -o "$output" "$@" ${LIBS}
 }
 
 BASE_OBJECTS="arch.o buf.o compat.o cond.o dir.o for.o getopt hash.o \

@@ -1,4 +1,4 @@
-/*	$NetBSD: compat.c,v 1.81 2010/09/13 15:36:57 sjg Exp $	*/
+/*	$NetBSD: compat.c,v 1.90 2012/10/07 19:17:31 sjg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990 The Regents of the University of California.
@@ -70,14 +70,14 @@
  */
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: compat.c,v 1.81 2010/09/13 15:36:57 sjg Exp $";
+static char rcsid[] = "$NetBSD: compat.c,v 1.90 2012/10/07 19:17:31 sjg Exp $";
 #else
 #include <sys/cdefs.h>
 #ifndef lint
 #if 0
 static char sccsid[] = "@(#)compat.c	8.2 (Berkeley) 3/19/94";
 #else
-__RCSID("$NetBSD: compat.c,v 1.81 2010/09/13 15:36:57 sjg Exp $");
+__RCSID("$NetBSD: compat.c,v 1.90 2012/10/07 19:17:31 sjg Exp $");
 #endif
 #endif /* not lint */
 #endif
@@ -183,7 +183,10 @@ CompatInterrupt(int signo)
 	}
 
     }
-    exit(signo);
+    if (signo == SIGQUIT)
+	_exit(signo);
+    bmake_signal(signo, SIG_DFL);
+    kill(myPid, signo);
 }
 
 /*-
@@ -244,7 +247,6 @@ CompatRunCommand(void *cmdp, void *gnp)
 
     if (*cmdStart == '\0') {
 	free(cmdStart);
-	Error("%s expands to empty string", cmd);
 	return(0);
     }
     cmd = cmdStart;
@@ -278,6 +280,12 @@ CompatRunCommand(void *cmdp, void *gnp)
 
     while (isspace((unsigned char)*cmd))
 	cmd++;
+
+    /*
+     * If we did not end up with a command, just skip it.
+     */
+    if (!*cmd)
+	return (0);
 
 #if !defined(MAKE_NATIVE)
     /*
@@ -350,7 +358,7 @@ again:
 		useShell = 1;
 		goto again;
 	}
-	av = (const char **)mav;
+	av = (void *)mav;
     }
 
     local = TRUE;
@@ -530,10 +538,10 @@ Compat_Make(void *gnp, void *pgnp)
 	}
 
 	/*
-	 * All the children were made ok. Now cmtime contains the modification
-	 * time of the newest child, we need to find out if we exist and when
-	 * we were modified last. The criteria for datedness are defined by the
-	 * Make_OODate function.
+	 * All the children were made ok. Now cmgn->mtime contains the
+	 * modification time of the newest child, we need to find out if we
+	 * exist and when we were modified last. The criteria for datedness
+	 * are defined by the Make_OODate function.
 	 */
 	if (DEBUG(MAKE)) {
 	    fprintf(debug_file, "Examining %s...", gn->name);

@@ -1,4 +1,4 @@
-/*	$NetBSD: targ.c,v 1.55 2009/01/23 21:26:30 dsl Exp $	*/
+/*	$NetBSD: targ.c,v 1.57 2012/06/12 19:21:51 joerg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1993
@@ -69,14 +69,14 @@
  */
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: targ.c,v 1.55 2009/01/23 21:26:30 dsl Exp $";
+static char rcsid[] = "$NetBSD: targ.c,v 1.57 2012/06/12 19:21:51 joerg Exp $";
 #else
 #include <sys/cdefs.h>
 #ifndef lint
 #if 0
 static char sccsid[] = "@(#)targ.c	8.2 (Berkeley) 3/19/94";
 #else
-__RCSID("$NetBSD: targ.c,v 1.55 2009/01/23 21:26:30 dsl Exp $");
+__RCSID("$NetBSD: targ.c,v 1.57 2012/06/12 19:21:51 joerg Exp $");
 #endif
 #endif /* not lint */
 #endif
@@ -248,8 +248,9 @@ Targ_NewGN(const char *name)
     gn->centurion =    	NULL;
     gn->made = 	    	UNMADE;
     gn->flags = 	0;
-    gn->checked = 0;
-    gn->mtime = gn->cmtime = 0;
+    gn->checked =	0;
+    gn->mtime =		0;
+    gn->cmgn =		NULL;
     gn->iParents =  	Lst_Init(FALSE);
     gn->cohorts =   	Lst_Init(FALSE);
     gn->parents =   	Lst_Init(FALSE);
@@ -511,7 +512,7 @@ Targ_SetMain(GNode *gn)
 }
 
 static int
-TargPrintName(void *gnp, void *pflags __unused)
+TargPrintName(void *gnp, void *pflags MAKE_ATTR_UNUSED)
 {
     GNode *gn = (GNode *)gnp;
 
@@ -716,7 +717,7 @@ Targ_PrintNode(void *gnp, void *passp)
  *-----------------------------------------------------------------------
  */
 static int
-TargPrintOnlySrc(void *gnp, void *dummy __unused)
+TargPrintOnlySrc(void *gnp, void *dummy MAKE_ATTR_UNUSED)
 {
     GNode   	  *gn = (GNode *)gnp;
     if (!OP_NOP(gn->type))
@@ -789,7 +790,7 @@ Targ_PrintGraph(int pass)
  *-----------------------------------------------------------------------
  */
 static int
-TargPropagateNode(void *gnp, void *junk __unused)
+TargPropagateNode(void *gnp, void *junk MAKE_ATTR_UNUSED)
 {
     GNode	  *gn = (GNode *)gnp;
 
