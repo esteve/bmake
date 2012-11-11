@@ -1,4 +1,4 @@
-/*	$NetBSD: make.c,v 1.82 2010/09/13 15:36:57 sjg Exp $	*/
+/*	$NetBSD: make.c,v 1.88 2012/11/09 18:53:05 sjg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1993
@@ -69,14 +69,14 @@
  */
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: make.c,v 1.82 2010/09/13 15:36:57 sjg Exp $";
+static char rcsid[] = "$NetBSD: make.c,v 1.88 2012/11/09 18:53:05 sjg Exp $";
 #else
 #include <sys/cdefs.h>
 #ifndef lint
 #if 0
 static char sccsid[] = "@(#)make.c	8.1 (Berkeley) 6/6/93";
 #else
-__RCSID("$NetBSD: make.c,v 1.82 2010/09/13 15:36:57 sjg Exp $");
+__RCSID("$NetBSD: make.c,v 1.88 2012/11/09 18:53:05 sjg Exp $");
 #endif
 #endif /* not lint */
 #endif
@@ -94,12 +94,12 @@ __RCSID("$NetBSD: make.c,v 1.82 2010/09/13 15:36:57 sjg Exp $");
  *
  *	Make_Update	    	Update all parents of a given child. Performs
  *	    	  	    	various bookkeeping chores like the updating
- *	    	  	    	of the cmtime field of the parent, filling
+ *	    	  	    	of the cmgn field of the parent, filling
  *	    	  	    	of the IMPSRC context variable, etc. It will
  *	    	  	    	place the parent on the toBeMade queue if it
  *	    	  	    	should be.
  *
- *	Make_TimeStamp	    	Function to set the parent's cmtime field
+ *	Make_TimeStamp	    	Function to set the parent's cmgn field
  *	    	  	    	based on a child's modification time.
  *
  *	Make_DoAllVar	    	Set up the various local variables for a
@@ -139,7 +139,7 @@ static int MakeCheckOrder(void *, void *);
 static int MakeBuildChild(void *, void *);
 static int MakeBuildParent(void *, void *);
 
-static void
+MAKE_ATTR_DEAD static void
 make_abort(GNode *gn, int line)
 {
     static int two = 2;
@@ -154,7 +154,7 @@ make_abort(GNode *gn, int line)
 /*-
  *-----------------------------------------------------------------------
  * Make_TimeStamp --
- *	Set the cmtime field of a parent node based on the mtime stamp in its
+ *	Set the cmgn field of a parent node based on the mtime stamp in its
  *	child. Called from MakeOODate via Lst_ForEach.
  *
  * Input:
@@ -165,15 +165,15 @@ make_abort(GNode *gn, int line)
  *	Always returns 0.
  *
  * Side Effects:
- *	The cmtime of the parent node will be changed if the mtime
+ *	The cmgn of the parent node will be changed if the mtime
  *	field of the child is greater than it.
  *-----------------------------------------------------------------------
  */
 int
 Make_TimeStamp(GNode *pgn, GNode *cgn)
 {
-    if (cgn->mtime > pgn->cmtime) {
-	pgn->cmtime = cgn->mtime;
+    if (pgn->cmgn == NULL || cgn->mtime > pgn->cmgn->mtime) {
+	pgn->cmgn = cgn;
     }
     return (0);
 }
@@ -207,7 +207,7 @@ MakeTimeStamp(void *pgn, void *cgn)
  *	TRUE if the node is out of date. FALSE otherwise.
  *
  * Side Effects:
- *	The mtime field of the node and the cmtime field of its parents
+ *	The mtime field of the node and the cmgn field of its parents
  *	will/may be changed.
  *-----------------------------------------------------------------------
  */
@@ -221,7 +221,7 @@ Make_OODate(GNode *gn)
      * doesn't depend on their modification time...
      */
     if ((gn->type & (OP_JOIN|OP_USE|OP_USEBEFORE|OP_EXEC)) == 0) {
-	(void)Dir_MTime(gn);
+	(void)Dir_MTime(gn, 1);
 	if (DEBUG(MAKE)) {
 	    if (gn->mtime != 0) {
 		fprintf(debug_file, "modified %s...", Targ_FmtTime(gn->mtime));
@@ -265,7 +265,7 @@ Make_OODate(GNode *gn)
 	 * or non-existent.
 	 */
 	oodate = (gn->mtime == 0 || Arch_LibOODate(gn) || 
-		  (gn->cmtime == 0 && (gn->type & OP_DOUBLEDEP)));
+		  (gn->cmgn == NULL && (gn->type & OP_DOUBLEDEP)));
     } else if (gn->type & OP_JOIN) {
 	/*
 	 * A target with the .JOIN attribute is only considered
@@ -293,21 +293,22 @@ Make_OODate(GNode *gn)
 	    }
 	}
 	oodate = TRUE;
-    } else if (gn->mtime < gn->cmtime ||
-	       (gn->cmtime == 0 &&
+    } else if ((gn->cmgn != NULL && gn->mtime < gn->cmgn->mtime) ||
+	       (gn->cmgn == NULL &&
 		((gn->mtime == 0 && !(gn->type & OP_OPTIONAL))
 		  || gn->type & OP_DOUBLEDEP)))
     {
 	/*
 	 * A node whose modification time is less than that of its
-	 * youngest child or that has no children (cmtime == 0) and
+	 * youngest child or that has no children (cmgn == NULL) and
 	 * either doesn't exist (mtime == 0) and it isn't optional
 	 * or was the object of a * :: operator is out-of-date.
 	 * Why? Because that's the way Make does it.
 	 */
 	if (DEBUG(MAKE)) {
-	    if (gn->mtime < gn->cmtime) {
-		fprintf(debug_file, "modified before source...");
+	    if (gn->cmgn != NULL && gn->mtime < gn->cmgn->mtime) {
+		fprintf(debug_file, "modified before source %s...",
+		    gn->cmgn->path);
 	    } else if (gn->mtime == 0) {
 		fprintf(debug_file, "non-existent and no sources...");
 	    } else {
@@ -395,7 +396,7 @@ MakeAddChild(void *gnp, void *lp)
  *	Always returns 0
  *
  * Side Effects:
- *	The path and mtime of the node and the cmtime of the parent are
+ *	The path and mtime of the node and the cmgn of the parent are
  *	updated; the unmade children count of the parent is decremented.
  *-----------------------------------------------------------------------
  */
@@ -405,7 +406,7 @@ MakeFindChild(void *gnp, void *pgnp)
     GNode          *gn = (GNode *)gnp;
     GNode          *pgn = (GNode *)pgnp;
 
-    (void)Dir_MTime(gn);
+    (void)Dir_MTime(gn, 0);
     Make_TimeStamp(pgn, gn);
     pgn->unmade--;
 
@@ -573,7 +574,7 @@ MakeHandleUse(void *cgnp, void *pgnp)
 time_t
 Make_Recheck(GNode *gn)
 {
-    time_t mtime = Dir_MTime(gn);
+    time_t mtime = Dir_MTime(gn, 1);
 
 #ifndef RECHECK
     /*
@@ -663,12 +664,12 @@ Make_Recheck(GNode *gn)
  *	the toBeMade queue if this field becomes 0.
  *
  * 	If the child was made, the parent's flag CHILDMADE field will be
- *	set true and its cmtime set to now.
+ *	set true.
  *
  *	If the child is not up-to-date and still does not exist,
  *	set the FORCE flag on the parents.
  *
- *	If the child wasn't made, the cmtime field of the parent will be
+ *	If the child wasn't made, the cmgn field of the parent will be
  *	altered if the child's mtime is big enough.
  *
  *	Finally, if the child is the implied source for the parent, the
@@ -866,7 +867,7 @@ Make_Update(GNode *cgn)
  *-----------------------------------------------------------------------
  */
 static int
-MakeUnmark(void *cgnp, void *pgnp __unused)
+MakeUnmark(void *cgnp, void *pgnp MAKE_ATTR_UNUSED)
 {
     GNode	*cgn = (GNode *)cgnp;
 
@@ -1004,7 +1005,7 @@ Make_DoAllVar(GNode *gn)
  */
 
 static int
-MakeCheckOrder(void *v_bn, void *ignore __unused)
+MakeCheckOrder(void *v_bn, void *ignore MAKE_ATTR_UNUSED)
 {
     GNode *bn = v_bn;
 
@@ -1031,7 +1032,7 @@ MakeBuildChild(void *v_cn, void *toBeMade_next)
     if (cn->order_pred && Lst_ForEach(cn->order_pred, MakeCheckOrder, 0)) {
 	/* Can't build this (or anything else in this child list) yet */
 	cn->made = DEFERRED;
-	return 1;
+	return 0;			/* but keep looking */
     }
 
     if (DEBUG(MAKE))
@@ -1054,7 +1055,7 @@ MakeBuildChild(void *v_cn, void *toBeMade_next)
     return cn->type & OP_WAIT && cn->unmade > 0;
 }
 
-/* When a .ORDER RHS node completes we do this on each LHS */
+/* When a .ORDER LHS node completes we do this on each RHS */
 static int
 MakeBuildParent(void *v_pn, void *toBeMade_next)
 {
@@ -1335,7 +1336,7 @@ Make_ExpandUse(Lst targs)
 	    *eon = ')';
 	}
 
-	(void)Dir_MTime(gn);
+	(void)Dir_MTime(gn, 0);
 	Var_Set(TARGET, gn->path ? gn->path : gn->name, gn, 0);
 	Lst_ForEach(gn->children, MakeUnmark, gn);
 	Lst_ForEach(gn->children, MakeHandleUse, gn);

@@ -1,4 +1,4 @@
-/*	$NetBSD: var.c,v 1.159 2010/06/06 01:13:12 sjg Exp $	*/
+/*	$NetBSD: var.c,v 1.171 2012/06/12 19:21:51 joerg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1993
@@ -69,14 +69,14 @@
  */
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: var.c,v 1.159 2010/06/06 01:13:12 sjg Exp $";
+static char rcsid[] = "$NetBSD: var.c,v 1.171 2012/06/12 19:21:51 joerg Exp $";
 #else
 #include <sys/cdefs.h>
 #ifndef lint
 #if 0
 static char sccsid[] = "@(#)var.c	8.3 (Berkeley) 3/19/94";
 #else
-__RCSID("$NetBSD: var.c,v 1.159 2010/06/06 01:13:12 sjg Exp $");
+__RCSID("$NetBSD: var.c,v 1.171 2012/06/12 19:21:51 joerg Exp $");
 #endif
 #endif /* not lint */
 #endif
@@ -129,13 +129,21 @@ __RCSID("$NetBSD: var.c,v 1.159 2010/06/06 01:13:12 sjg Exp $");
 #include    <regex.h>
 #endif
 #include    <ctype.h>
+#include    <inttypes.h>
 #include    <stdlib.h>
 #include    <limits.h>
+#include    <time.h>
 
 #include    "make.h"
 #include    "buf.h"
 #include    "dir.h"
 #include    "job.h"
+
+/*
+ * This lets us tell if we have replaced the original environ
+ * (which we cannot free).
+ */
+char **savedEnv = NULL;
 
 /*
  * This is a harmless return value for Var_Parse that can be used by Var_Subst
@@ -302,6 +310,7 @@ static char *VarGetPattern(GNode *, Var_Parse_State *,
 			   VarPattern *);
 static char *VarQuote(char *);
 static char *VarChangeCase(char *, int);
+static char *VarHash(char *);
 static char *VarModify(GNode *, Var_Parse_State *,
     const char *,
     Boolean (*)(GNode *, Var_Parse_State *, char *, Boolean, Buffer *, void *),
@@ -379,6 +388,12 @@ VarFind(const char *name, GNode *ctxt, int flags)
 				name = TARGET;
 			break;
 		}
+#ifdef notyet
+    /* for compatibility with gmake */
+    if (name[0] == '^' && name[1] == '\0')
+	    name = ALLSRC;
+#endif
+
     /*
      * First look for the variable in the given context. If it's not there,
      * look for it in VAR_CMD, VAR_GLOBAL and the environment, in that order,
@@ -733,6 +748,8 @@ Var_Export(char *str, int isExport)
 /*
  * This is called when .unexport[-env] is seen.
  */
+extern char **environ;
+
 void
 Var_UnExport(char *str)
 {
@@ -751,28 +768,29 @@ Var_UnExport(char *str)
     str += 8;
     unexport_env = (strncmp(str, "-env", 4) == 0);
     if (unexport_env) {
-	extern char **environ;
-	static char **savenv;
 	char **newenv;
 
 	cp = getenv(MAKE_LEVEL);	/* we should preserve this */
-	if (environ == savenv) {
+	if (environ == savedEnv) {
 	    /* we have been here before! */
 	    newenv = bmake_realloc(environ, 2 * sizeof(char *));
 	} else {
-	    if (savenv) {
-		free(savenv);
-		savenv = NULL;
+	    if (savedEnv) {
+		free(savedEnv);
+		savedEnv = NULL;
 	    }
 	    newenv = bmake_malloc(2 * sizeof(char *));
 	}
 	if (!newenv)
 	    return;
 	/* Note: we cannot safely free() the original environ. */
-	environ = savenv = newenv;
+	environ = savedEnv = newenv;
 	newenv[0] = NULL;
 	newenv[1] = NULL;
 	setenv(MAKE_LEVEL, cp, 1);
+#ifdef MAKE_LEVEL_SAFE
+	setenv(MAKE_LEVEL_SAFE, cp, 1);
+#endif
     } else {
 	for (; *str != '\n' && isspace((unsigned char) *str); str++)
 	    continue;
@@ -944,6 +962,9 @@ Var_Set(const char *name, const char *val, GNode *ctxt, int flags)
 	level = atoi(val);
 	snprintf(tmp, sizeof(tmp), "%u", level + 1);
 	setenv(MAKE_LEVEL, tmp, 1);
+#ifdef MAKE_LEVEL_SAFE
+	setenv(MAKE_LEVEL_SAFE, tmp, 1);
+#endif
     }
 	
 	
@@ -1124,7 +1145,7 @@ Var_Value(const char *name, GNode *ctxt, char **frp)
  *-----------------------------------------------------------------------
  */
 static Boolean
-VarHead(GNode *ctx __unused, Var_Parse_State *vpstate,
+VarHead(GNode *ctx MAKE_ATTR_UNUSED, Var_Parse_State *vpstate,
 	char *word, Boolean addSpace, Buffer *buf,
 	void *dummy)
 {
@@ -1172,7 +1193,7 @@ VarHead(GNode *ctx __unused, Var_Parse_State *vpstate,
  *-----------------------------------------------------------------------
  */
 static Boolean
-VarTail(GNode *ctx __unused, Var_Parse_State *vpstate,
+VarTail(GNode *ctx MAKE_ATTR_UNUSED, Var_Parse_State *vpstate,
 	char *word, Boolean addSpace, Buffer *buf,
 	void *dummy)
 {
@@ -1214,7 +1235,7 @@ VarTail(GNode *ctx __unused, Var_Parse_State *vpstate,
  *-----------------------------------------------------------------------
  */
 static Boolean
-VarSuffix(GNode *ctx __unused, Var_Parse_State *vpstate,
+VarSuffix(GNode *ctx MAKE_ATTR_UNUSED, Var_Parse_State *vpstate,
 	  char *word, Boolean addSpace, Buffer *buf,
 	  void *dummy)
 {
@@ -1255,7 +1276,7 @@ VarSuffix(GNode *ctx __unused, Var_Parse_State *vpstate,
  *-----------------------------------------------------------------------
  */
 static Boolean
-VarRoot(GNode *ctx __unused, Var_Parse_State *vpstate,
+VarRoot(GNode *ctx MAKE_ATTR_UNUSED, Var_Parse_State *vpstate,
 	char *word, Boolean addSpace, Buffer *buf,
 	void *dummy)
 {
@@ -1299,7 +1320,7 @@ VarRoot(GNode *ctx __unused, Var_Parse_State *vpstate,
  *-----------------------------------------------------------------------
  */
 static Boolean
-VarMatch(GNode *ctx __unused, Var_Parse_State *vpstate,
+VarMatch(GNode *ctx MAKE_ATTR_UNUSED, Var_Parse_State *vpstate,
 	 char *word, Boolean addSpace, Buffer *buf,
 	 void *pattern)
 {
@@ -1390,7 +1411,7 @@ VarSYSVMatch(GNode *ctx, Var_Parse_State *vpstate,
  *-----------------------------------------------------------------------
  */
 static Boolean
-VarNoMatch(GNode *ctx __unused, Var_Parse_State *vpstate,
+VarNoMatch(GNode *ctx MAKE_ATTR_UNUSED, Var_Parse_State *vpstate,
 	   char *word, Boolean addSpace, Buffer *buf,
 	   void *pattern)
 {
@@ -1427,7 +1448,7 @@ VarNoMatch(GNode *ctx __unused, Var_Parse_State *vpstate,
  *-----------------------------------------------------------------------
  */
 static Boolean
-VarSubstitute(GNode *ctx __unused, Var_Parse_State *vpstate,
+VarSubstitute(GNode *ctx MAKE_ATTR_UNUSED, Var_Parse_State *vpstate,
 	      char *word, Boolean addSpace, Buffer *buf,
 	      void *patternp)
 {
@@ -1623,7 +1644,8 @@ VarREError(int errnum, regex_t *pat, const char *str)
  *-----------------------------------------------------------------------
  */
 static Boolean
-VarRESubstitute(GNode *ctx __unused, Var_Parse_State *vpstate __unused,
+VarRESubstitute(GNode *ctx MAKE_ATTR_UNUSED,
+		Var_Parse_State *vpstate MAKE_ATTR_UNUSED,
 		char *word, Boolean addSpace, Buffer *buf,
 		void *patternp)
 {
@@ -1763,7 +1785,8 @@ VarRESubstitute(GNode *ctx __unused, Var_Parse_State *vpstate __unused,
  *-----------------------------------------------------------------------
  */
 static Boolean
-VarLoopExpand(GNode *ctx __unused, Var_Parse_State *vpstate __unused,
+VarLoopExpand(GNode *ctx MAKE_ATTR_UNUSED,
+	      Var_Parse_State *vpstate MAKE_ATTR_UNUSED,
 	      char *word, Boolean addSpace, Buffer *buf,
 	      void *loopp)
 {
@@ -1806,7 +1829,7 @@ VarLoopExpand(GNode *ctx __unused, Var_Parse_State *vpstate __unused,
  *-----------------------------------------------------------------------
  */
 static char *
-VarSelectWords(GNode *ctx __unused, Var_Parse_State *vpstate,
+VarSelectWords(GNode *ctx MAKE_ATTR_UNUSED, Var_Parse_State *vpstate,
 	       const char *str, VarSelectWords_t *seldata)
 {
     Buffer  	  buf;		    /* Buffer for the new string */
@@ -1881,9 +1904,9 @@ VarSelectWords(GNode *ctx __unused, Var_Parse_State *vpstate,
  *	if successful.
  */
 static Boolean
-VarRealpath(GNode *ctx __unused, Var_Parse_State *vpstate,
+VarRealpath(GNode *ctx MAKE_ATTR_UNUSED, Var_Parse_State *vpstate,
 	    char *word, Boolean addSpace, Buffer *buf,
-	    void *patternp __unused)
+	    void *patternp MAKE_ATTR_UNUSED)
 {
 	struct stat st;
 	char rbuf[MAXPATHLEN];
@@ -2106,7 +2129,7 @@ VarUniq(const char *str)
  *-----------------------------------------------------------------------
  */
 static char *
-VarGetPattern(GNode *ctxt, Var_Parse_State *vpstate __unused,
+VarGetPattern(GNode *ctxt, Var_Parse_State *vpstate MAKE_ATTR_UNUSED,
 	      int errnum, const char **tstr, int delim, int *flags,
 	      int *length, VarPattern *pattern)
 {
@@ -2256,6 +2279,79 @@ VarQuote(char *str)
 
 /*-
  *-----------------------------------------------------------------------
+ * VarHash --
+ *      Hash the string using the MurmurHash3 algorithm.
+ *      Output is computed using 32bit Little Endian arithmetic.
+ *
+ * Input:
+ *	str		String to modify
+ *
+ * Results:
+ *      Hash value of str, encoded as 8 hex digits.
+ *
+ * Side Effects:
+ *      None.
+ *
+ *-----------------------------------------------------------------------
+ */
+static char *
+VarHash(char *str)
+{
+    static const char    hexdigits[16] = "0123456789abcdef";
+    Buffer         buf;
+    size_t         len, len2;
+    unsigned char  *ustr = (unsigned char *)str;
+    uint32_t       h, k, c1, c2;
+    int            done;
+
+    done = 1;
+    h  = 0x971e137bU;
+    c1 = 0x95543787U;
+    c2 = 0x2ad7eb25U;
+    len2 = strlen(str);
+
+    for (len = len2; len; ) {
+	k = 0;
+	switch (len) {
+	default:
+	    k = (ustr[3] << 24) | (ustr[2] << 16) | (ustr[1] << 8) | ustr[0];
+	    len -= 4;
+	    ustr += 4;
+	    break;
+	case 3:
+	    k |= (ustr[2] << 16);
+	case 2:
+	    k |= (ustr[1] << 8);
+	case 1:
+	    k |= ustr[0];
+	    len = 0;
+	}
+	c1 = c1 * 5 + 0x7b7d159cU;
+	c2 = c2 * 5 + 0x6bce6396U;
+	k *= c1;
+	k = (k << 11) ^ (k >> 21);
+	k *= c2;
+	h = (h << 13) ^ (h >> 19);
+	h = h * 5 + 0x52dce729U;
+	h ^= k;
+   } while (!done);
+   h ^= len2;
+   h *= 0x85ebca6b;
+   h ^= h >> 13;
+   h *= 0xc2b2ae35;
+   h ^= h >> 16;
+
+   Buf_Init(&buf, 0);
+   for (len = 0; len < 8; ++len) {
+       Buf_AddByte(&buf, hexdigits[h & 15]);
+       h >>= 4;
+   }
+
+   return Buf_Destroy(&buf, FALSE);
+}
+
+/*-
+ *-----------------------------------------------------------------------
  * VarChangeCase --
  *      Change the string to all uppercase or all lowercase
  *
@@ -2283,6 +2379,21 @@ VarChangeCase(char *str, int upper)
        Buf_AddByte(&buf, modProc(*str));
    }
    return Buf_Destroy(&buf, FALSE);
+}
+
+static char *
+VarStrftime(const char *fmt, int zulu)
+{
+    char buf[BUFSIZ];
+    time_t utc;
+
+    time(&utc);
+    if (!*fmt)
+	fmt = "%c";
+    strftime(buf, sizeof(buf), fmt, zulu ? gmtime(&utc) : localtime(&utc));
+    
+    buf[sizeof(buf) - 1] = '\0';
+    return bmake_strdup(buf);
 }
 
 /*
@@ -2370,6 +2481,10 @@ VarChangeCase(char *str, int upper)
  *			variable.
  */
 
+/* we now have some modifiers with long names */
+#define STRMOD_MATCH(s, want, n) \
+    (strncmp(s, want, n) == 0 && (s[n] == endc || s[n] == ':'))
+
 static char *
 ApplyModifiers(char *nstr, const char *tstr,
 	       int startc, int endc,
@@ -2397,13 +2512,27 @@ ApplyModifiers(char *nstr, const char *tstr,
 
 	if (*tstr == '$') {
 	    /*
-	     * We have some complex modifiers in a variable.
+	     * We may have some complex modifiers in a variable.
 	     */
 	    void *freeIt;
 	    char *rval;
 	    int rlen;
+	    int c;
 
 	    rval = Var_Parse(tstr, ctxt, errnum, &rlen, &freeIt);
+
+	    /*
+	     * If we have not parsed up to endc or ':',
+	     * we are not interested.
+	     */
+	    if (rval != NULL && *rval &&
+		(c = tstr[rlen]) != '\0' &&
+		c != ':' &&
+		c != endc) {
+		if (freeIt)
+		    free(freeIt);
+		goto apply_mods;
+	    }
 
 	    if (DEBUG(VAR)) {
 		fprintf(debug_file, "Got '%s' from '%.*s'%.*s\n",
@@ -2436,6 +2565,7 @@ ApplyModifiers(char *nstr, const char *tstr,
 	    }
 	    continue;
 	}
+    apply_mods:
 	if (DEBUG(VAR)) {
 	    fprintf(debug_file, "Applying :%c to \"%s\"\n", *tstr, nstr);
 	}
@@ -2486,7 +2616,7 @@ ApplyModifiers(char *nstr, const char *tstr,
 			cp = ++tstr;
 			break;
 		    }
-		    delim = BRCLOSE;
+		    delim = startc == PROPEN ? PRCLOSE : BRCLOSE;
 		    pattern.flags = 0;
 
 		    pattern.rhs = VarGetPattern(ctxt, &parsestate, errnum,
@@ -2815,6 +2945,36 @@ ApplyModifiers(char *nstr, const char *tstr,
 		}
 
 	    }
+	case 'g':
+	    cp = tstr + 1;	/* make sure it is set */
+	    if (STRMOD_MATCH(tstr, "gmtime", 6)) {
+		newStr = VarStrftime(nstr, 1);
+		cp = tstr + 6;
+		termc = *cp;
+	    } else {
+		goto default_case;
+	    }
+	    break;
+	case 'h':
+	    cp = tstr + 1;	/* make sure it is set */
+	    if (STRMOD_MATCH(tstr, "hash", 4)) {
+		newStr = VarHash(nstr);
+		cp = tstr + 4;
+		termc = *cp;
+	    } else {
+		goto default_case;
+	    }
+	    break;
+	case 'l':
+	    cp = tstr + 1;	/* make sure it is set */
+	    if (STRMOD_MATCH(tstr, "localtime", 9)) {
+		newStr = VarStrftime(nstr, 0);
+		cp = tstr + 9;
+		termc = *cp;
+	    } else {
+		goto default_case;
+	    }
+	    break;
 	case 't':
 	    {
 		cp = tstr + 1;	/* make sure it is set */
@@ -3340,9 +3500,13 @@ ApplyModifiers(char *nstr, const char *tstr,
 		 */
 		termc = *--cp;
 		delim = '\0';
-		newStr = VarModify(ctxt, &parsestate, nstr,
-				   VarSYSVMatch,
-				   &pattern);
+		if (pattern.leftLen == 0 && *nstr == '\0') {
+		    newStr = nstr;	/* special case */
+		} else {
+		    newStr = VarModify(ctxt, &parsestate, nstr,
+				       VarSYSVMatch,
+				       &pattern);
+		}
 		free(UNCONST(pattern.lhs));
 		free(UNCONST(pattern.rhs));
 	    } else
@@ -3740,7 +3904,7 @@ Var_Parse(const char *str, GNode *ctxt, Boolean errnum, int *lengthPtr,
 		nstr = bmake_strndup(start, *lengthPtr);
 		*freePtr = nstr;
 	    } else {
-		nstr = var_Error;
+		nstr = errnum ? var_Error : varNoError;
 	    }
 	}
 	if (nstr != Buf_GetAll(&v->val, NULL))
@@ -3925,7 +4089,7 @@ Var_Subst(const char *var, const char *str, GNode *ctxt, Boolean undefErr)
 	}
     }
 
-    return Buf_Destroy(&buf, FALSE);
+    return Buf_DestroyCompact(&buf);
 }
 
 /*-

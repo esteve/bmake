@@ -1,4 +1,4 @@
-/*	$NetBSD: suff.c,v 1.67 2009/01/23 21:58:28 dsl Exp $	*/
+/*	$NetBSD: suff.c,v 1.69 2011/09/29 23:38:04 sjg Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1993
@@ -69,14 +69,14 @@
  */
 
 #ifndef MAKE_NATIVE
-static char rcsid[] = "$NetBSD: suff.c,v 1.67 2009/01/23 21:58:28 dsl Exp $";
+static char rcsid[] = "$NetBSD: suff.c,v 1.69 2011/09/29 23:38:04 sjg Exp $";
 #else
 #include <sys/cdefs.h>
 #ifndef lint
 #if 0
 static char sccsid[] = "@(#)suff.c	8.4 (Berkeley) 3/21/94";
 #else
-__RCSID("$NetBSD: suff.c,v 1.67 2009/01/23 21:58:28 dsl Exp $");
+__RCSID("$NetBSD: suff.c,v 1.69 2011/09/29 23:38:04 sjg Exp $");
 #endif
 #endif /* not lint */
 #endif
@@ -1434,7 +1434,7 @@ SuffFindCmds(Src *targ, Lst slst)
 	     * We haven't looked to see if .OPTIONAL files exist yet, so
 	     * don't use one as the implicit source.
 	     * This allows us to use .OPTIONAL in .depend files so make won't
-	     * complain "don't know how to make xxx.h' when a dependant file
+	     * complain "don't know how to make xxx.h' when a dependent file
 	     * has been moved/deleted.
 	     */
 	    continue;
@@ -2406,16 +2406,25 @@ Suff_FindDeps(GNode *gn)
 static void
 SuffFindDeps(GNode *gn, Lst slst)
 {
-    if (gn->type & (OP_DEPS_FOUND|OP_PHONY)) {
+    if (gn->type & OP_DEPS_FOUND) {
 	/*
 	 * If dependencies already found, no need to do it again...
-	 * If this is a .PHONY target, we do not apply suffix rules.
 	 */
 	return;
     } else {
 	gn->type |= OP_DEPS_FOUND;
     }
-
+    /*
+     * Make sure we have these set, may get revised below.
+     */
+    Var_Set(TARGET, gn->path ? gn->path : gn->name, gn, 0);
+    Var_Set(PREFIX, gn->name, gn, 0);
+    if (gn->type & OP_PHONY) {
+	/*
+	 * If this is a .PHONY target, we do not apply suffix rules.
+	 */
+	return;
+    }
     if (DEBUG(SUFF)) {
 	fprintf(debug_file, "SuffFindDeps (%s)\n", gn->name);
     }
