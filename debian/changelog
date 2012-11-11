@@ -1,3 +1,9 @@
+bmake (20121109-1~upfmipal1) precise; urgency=low
+
+  * Imported Upstream version 20121109
+
+ -- Esteve Fernandez <esteve@apache.org>  Sun, 11 Nov 2012 13:28:42 +0000
+
 bmake (20100911-2) unstable; urgency=low
 
   * Fix in debian/rules
